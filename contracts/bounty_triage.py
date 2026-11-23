@@ -1,13 +1,9 @@
-# { "Depends": "py-genlayer:test" }
-# NOTE: pin the exact py-genlayer hash used by your repo and run genvm-lint
-# before submitting. SDK names below follow the current docs as far as I know.
-from genlayer import *
+# { "Depends": "py-genlayer:1zr6nqk597d97kg0dyxg0shhrykx5v02zjgnyrajapy4wlqvfvwh" }
+import genlayer as gl
 from dataclasses import dataclass
 import json
 
-# --- Deterministic payout table (basis points of the bounty) ---------------
-# The validator only ever agrees on the VERDICT. Money is derived from it,
-# so there is no tolerance window on payouts.
+# Payout in basis points, derived only from the verdict (no tolerance window).
 VERDICT_BPS = {
     "CONFIRMED_CRITICAL": 10000,
     "CONFIRMED_HIGH": 5000,
@@ -16,7 +12,6 @@ VERDICT_BPS = {
     "NEEDS_EVIDENCE": 0,
 }
 
-# Lifecycle states
 SUBMITTED = "SUBMITTED"
 RESPONDED = "RESPONDED"
 ADJUDICATED = "ADJUDICATED"
@@ -32,54 +27,53 @@ Rules: unverified claims are never CONFIRMED. Prefer NEEDS_EVIDENCE over guessin
 Reply with JSON only: {"verdict": "<ONE OF THE FIVE>", "rationale": "<max 300 chars>"}"""
 
 
-@allow_storage
+@gl.allow
 @dataclass
 class Report:
-    reporter: Address
-    maintainer: Address
+    reporter: gl.Address
+    maintainer: gl.Address
     project: str
     evidence_url: str
     summary: str
-    bounty: u256
+    bounty: gl.u256
     status: str
     response: str
     verdict: str
     rationale: str
-    payout: u256
+    payout: gl.u256
     appealed: bool
 
 
-class BountyTriage(gl.Contract):
-    next_id: u256
-    reports: TreeMap[u256, Report]
+class BountyTriage(gl.contract.Contract):
+    next_id: gl.u256
+    reports: gl.TreeMap[gl.u256, Report]
 
     def __init__(self):
-        self.next_id = u256(0)
+        self.next_id = 0
 
-    # ------------------------------------------------------------ writes --
     @gl.public.write
     def submit_report(
-        self, maintainer: Address, project: str, evidence_url: str,
+        self, maintainer: gl.Address, project: str, evidence_url: str,
         summary: str, bounty: int,
     ) -> int:
         # Monotonic counter id: no string-concatenated keys, no collisions.
         rid = self.next_id
-        self.next_id = u256(int(rid) + 1)
+        self.next_id = rid + 1
         self.reports[rid] = Report(
             reporter=gl.message.sender_address,
             maintainer=maintainer,
             project=project,
             evidence_url=evidence_url,
             summary=summary,
-            bounty=u256(bounty),
+            bounty=bounty,
             status=SUBMITTED,
             response="",
             verdict="",
             rationale="",
-            payout=u256(0),
+            payout=0,
             appealed=False,
         )
-        return int(rid)
+        return rid
 
     @gl.public.write
     def respond(self, report_id: int, response: str) -> None:
@@ -93,8 +87,8 @@ class BountyTriage(gl.Contract):
     def adjudicate(self, report_id: int) -> None:
         r = self._get(report_id)
         assert r.status in (SUBMITTED, RESPONDED), "bad state"
-        # TODO: enforce a response deadline before allowing SUBMITTED -> adjudicate
-        self._run_judgement(r, appeal_reason="")
+        # TODO: enforce a response deadline before SUBMITTED -> adjudicate
+        self._run_judgement(r, "")
         r.status = ADJUDICATED
 
     @gl.public.write
@@ -104,7 +98,7 @@ class BountyTriage(gl.Contract):
         assert sender == r.reporter or sender == r.maintainer, "not a party"
         assert r.status == ADJUDICATED and not r.appealed, "bad state"
         r.appealed = True
-        self._run_judgement(r, appeal_reason=reason)
+        self._run_judgement(r, reason)
         r.status = FINALIZED  # one appeal only, result is final
 
     @gl.public.write
@@ -115,7 +109,6 @@ class BountyTriage(gl.Contract):
         assert r.status == ADJUDICATED, "bad state"
         r.status = FINALIZED
 
-    # ------------------------------------------------------------- views --
     @gl.public.view
     def get_report(self, report_id: int) -> dict:
         r = self._get(report_id)
@@ -124,20 +117,18 @@ class BountyTriage(gl.Contract):
             "status": r.status,
             "verdict": r.verdict,
             "rationale": r.rationale,
-            "payout": int(r.payout),
+            "payout": r.payout,
             "appealed": r.appealed,
         }
 
-    # ---------------------------------------------------------- internals --
     def _get(self, report_id: int) -> Report:
-        rid = u256(report_id)
-        assert rid in self.reports, "unknown report"
-        return self.reports[rid]
+        assert report_id in self.reports, "unknown report"
+        return self.reports[report_id]
 
     def _run_judgement(self, r: Report, appeal_reason: str) -> None:
         # Copy storage into locals: storage is not readable inside nondet blocks.
         url, summary, response = r.evidence_url, r.summary, r.response
-        bounty = int(r.bounty)
+        bounty = r.bounty
 
         def leader_fn() -> dict:
             try:
@@ -156,14 +147,14 @@ class BountyTriage(gl.Contract):
             if not isinstance(leader_result, gl.vm.Return):
                 return False
             mine = leader_fn()
-            # Compare ONLY the enum verdict. Rationale text is never compared.
+            # Compare ONLY the enum verdict. Rationale is never compared.
             return mine["verdict"] == leader_result.calldata["verdict"]
 
         result = gl.vm.run_nondet(leader_fn, validator_fn)
         r.verdict = result["verdict"]
         r.rationale = result["rationale"]
-        r.payout = u256(bounty * VERDICT_BPS[r.verdict] // 10000)
-        # TODO: actual fund transfer; keep accounting-only until escrow is added.
+        r.payout = bounty * VERDICT_BPS[r.verdict] // 10000
+        # TODO: real fund transfer; accounting-only until escrow is added.
 
 
 def _parse(raw: str) -> dict:

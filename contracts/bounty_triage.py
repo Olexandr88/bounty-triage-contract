@@ -1,4 +1,4 @@
-# { "Depends": "py-genlayer:1zr6nqk597d97kg0dyxg0shhrykx5v02zjgnyrajapy4wlqvfvwh" }
+# { "Depends": "py-genlayer:latest" }
 import genlayer as gl
 from dataclasses import dataclass
 import json
@@ -27,7 +27,12 @@ Rules: unverified claims are never CONFIRMED. Prefer NEEDS_EVIDENCE over guessin
 Reply with JSON only: {"verdict": "<ONE OF THE FIVE>", "rationale": "<max 300 chars>"}"""
 
 
-@gl.allow
+def _sender() -> gl.Address:
+    """Normalise the caller: raw bytes in direct-mode tests, Address on-chain."""
+    return gl.Address(gl.message.sender_address)
+
+
+@gl.storage.allow
 @dataclass
 class Report:
     reporter: gl.Address
@@ -46,7 +51,7 @@ class Report:
 
 class BountyTriage(gl.contract.Contract):
     next_id: gl.u256
-    reports: gl.TreeMap[gl.u256, Report]
+    reports: gl.storage.TreeMap[gl.u256, Report]
 
     def __init__(self):
         self.next_id = 0
@@ -60,8 +65,8 @@ class BountyTriage(gl.contract.Contract):
         rid = self.next_id
         self.next_id = rid + 1
         self.reports[rid] = Report(
-            reporter=gl.message.sender_address,
-            maintainer=maintainer,
+            reporter=_sender(),
+            maintainer=gl.Address(maintainer),
             project=project,
             evidence_url=evidence_url,
             summary=summary,
@@ -78,15 +83,18 @@ class BountyTriage(gl.contract.Contract):
     @gl.public.write
     def respond(self, report_id: int, response: str) -> None:
         r = self._get(report_id)
-        assert gl.message.sender_address == r.maintainer, "only maintainer"
-        assert r.status == SUBMITTED, "bad state"
+        if not (_sender() == r.maintainer):
+            raise gl.vm.UserError("only maintainer")
+        if not (r.status == SUBMITTED):
+            raise gl.vm.UserError("bad state")
         r.response = response
         r.status = RESPONDED
 
     @gl.public.write
     def adjudicate(self, report_id: int) -> None:
         r = self._get(report_id)
-        assert r.status in (SUBMITTED, RESPONDED), "bad state"
+        if not (r.status in (SUBMITTED, RESPONDED)):
+            raise gl.vm.UserError("bad state")
         # TODO: enforce a response deadline before SUBMITTED -> adjudicate
         self._run_judgement(r, "")
         r.status = ADJUDICATED
@@ -94,9 +102,11 @@ class BountyTriage(gl.contract.Contract):
     @gl.public.write
     def appeal(self, report_id: int, reason: str) -> None:
         r = self._get(report_id)
-        sender = gl.message.sender_address
-        assert sender == r.reporter or sender == r.maintainer, "not a party"
-        assert r.status == ADJUDICATED and not r.appealed, "bad state"
+        sender = _sender()
+        if not (sender == r.reporter or sender == r.maintainer):
+            raise gl.vm.UserError("not a party")
+        if not (r.status == ADJUDICATED and not r.appealed):
+            raise gl.vm.UserError("bad state")
         r.appealed = True
         self._run_judgement(r, reason)
         r.status = FINALIZED  # one appeal only, result is final
@@ -104,9 +114,11 @@ class BountyTriage(gl.contract.Contract):
     @gl.public.write
     def finalize(self, report_id: int) -> None:
         r = self._get(report_id)
-        sender = gl.message.sender_address
-        assert sender == r.reporter or sender == r.maintainer, "not a party"
-        assert r.status == ADJUDICATED, "bad state"
+        sender = _sender()
+        if not (sender == r.reporter or sender == r.maintainer):
+            raise gl.vm.UserError("not a party")
+        if not (r.status == ADJUDICATED):
+            raise gl.vm.UserError("bad state")
         r.status = FINALIZED
 
     @gl.public.view
@@ -122,7 +134,8 @@ class BountyTriage(gl.contract.Contract):
         }
 
     def _get(self, report_id: int) -> Report:
-        assert report_id in self.reports, "unknown report"
+        if not (report_id in self.reports):
+            raise gl.vm.UserError("unknown report")
         return self.reports[report_id]
 
     def _run_judgement(self, r: Report, appeal_reason: str) -> None:

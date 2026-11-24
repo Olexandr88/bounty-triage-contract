@@ -1,9 +1,7 @@
-# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
-
-from genlayer import *
+# { "Depends": "py-genlayer:latest" }
+import genlayer as gl
 from dataclasses import dataclass
 import json
-import typing
 
 # Payout in basis points, derived only from the verdict (no tolerance window).
 VERDICT_BPS = {
@@ -29,38 +27,38 @@ Rules: unverified claims are never CONFIRMED. Prefer NEEDS_EVIDENCE over guessin
 Reply with JSON only: {"verdict": "<ONE OF THE FIVE>", "rationale": "<max 300 chars>"}"""
 
 
-def _sender() -> Address:
+def _sender() -> gl.Address:
     """Normalise the caller: raw bytes in direct-mode tests, Address on-chain."""
-    return Address(gl.message.sender_address)
+    return gl.Address(gl.message.sender_address)
 
 
-@allow_storage
+@gl.storage.allow
 @dataclass
 class Report:
-    reporter: Address
-    maintainer: Address
+    reporter: gl.Address
+    maintainer: gl.Address
     project: str
     evidence_url: str
     summary: str
-    bounty: u256
+    bounty: gl.u256
     status: str
     response: str
     verdict: str
     rationale: str
-    payout: u256
+    payout: gl.u256
     appealed: bool
 
 
-class BountyTriage(gl.Contract):
-    next_id: u256
-    reports: TreeMap[u256, Report]
+class BountyTriage(gl.contract.Contract):
+    next_id: gl.u256
+    reports: gl.storage.TreeMap[gl.u256, Report]
 
     def __init__(self):
         self.next_id = 0
 
     @gl.public.write
     def submit_report(
-        self, maintainer: Address, project: str, evidence_url: str,
+        self, maintainer: gl.Address, project: str, evidence_url: str,
         summary: str, bounty: int,
     ) -> int:
         # Monotonic counter id: no string-concatenated keys, no collisions.
@@ -68,7 +66,7 @@ class BountyTriage(gl.Contract):
         self.next_id = rid + 1
         self.reports[rid] = Report(
             reporter=_sender(),
-            maintainer=Address(maintainer),
+            maintainer=gl.Address(maintainer),
             project=project,
             evidence_url=evidence_url,
             summary=summary,
@@ -124,7 +122,7 @@ class BountyTriage(gl.Contract):
         r.status = FINALIZED
 
     @gl.public.view
-    def get_report(self, report_id: int) -> typing.Any:
+    def get_report(self, report_id: int) -> dict:
         r = self._get(report_id)
         return {
             "project": r.project,
@@ -186,4 +184,3 @@ def _parse(raw: str) -> dict:
     if verdict not in VERDICT_BPS:
         verdict = "NEEDS_EVIDENCE"
     return {"verdict": verdict, "rationale": rationale}
-

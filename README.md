@@ -49,3 +49,8 @@ no Docker, network or API key is needed. The LLM is mocked per test.
 - The response deadline is a documented TODO; adjudication is currently allowed from `SUBMITTED` or `RESPONDED`.
 - Tests run in Direct Mode with a mocked LLM. The contract has not been exercised against a live validator network.
 - The contract header uses `# { "Depends": "py-genlayer:latest" }` and the tests run on `genlayer-test` 0.30.0 (exact versions in `requirements.txt`).
+
+## Two builds of the contract
+
+- `contracts/bounty_triage.py` is the build exercised by the Direct Mode tests (`pytest tests`), which run on the local `genlayer-test` toolchain pinned in `requirements.txt`.
+- `deploy/bounty_triage_studio.py` is the same logic with the pinned runner hash and current SDK import style that GenLayer Studio accepts. This is the build deployed to Studio. It is not covered by the local tests.

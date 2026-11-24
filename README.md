@@ -28,9 +28,9 @@ by a table, never negotiated, so there is no tolerance window on the money.
 
 ## Consensus design
 
-Leader and validators run `gl.vm.run_nondet_default`. The validator re-runs the
+Leader and validators run `gl.vm.run_nondet`. The validator re-runs the
 judgement and compares **only the verdict enum**; the free-text rationale is
-stored but never compared. Malformed or unknown model output falls back to
+stored but never compared. If the validator's own re-run fails, it disagrees instead of guessing. Malformed or unknown model output falls back to
 `NEEDS_EVIDENCE`, which pays nothing, so a bad answer can never release funds.
 
 ## Setup and tests

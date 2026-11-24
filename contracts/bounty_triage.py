@@ -159,11 +159,14 @@ class BountyTriage(gl.contract.Contract):
         def validator_fn(leader_result) -> bool:
             if not isinstance(leader_result, gl.vm.Return):
                 return False
-            mine = leader_fn()
+            try:
+                mine = leader_fn()
+            except Exception:
+                return False
             # Compare ONLY the enum verdict. Rationale is never compared.
             return mine["verdict"] == leader_result.calldata["verdict"]
 
-        result = gl.vm.run_nondet_default(leader_fn, validator_fn)
+        result = gl.vm.run_nondet(leader_fn, validator_fn)
         r.verdict = result["verdict"]
         r.rationale = result["rationale"]
         r.payout = bounty * VERDICT_BPS[r.verdict] // 10000
